@@ -1,0 +1,58 @@
+# Parametric bootstrap for linear mixed-effects models
+
+Julia is well-suited to implementing bootstrapping and other simulation-based methods for statistical models.
+The `bootstrap!` function in the [MixedModels package](https://github.com/dmbates/MixedModels.jl) provides
+an efficient parametric bootstrap for linear mixed-effects models, assuming that the results of interest
+from each simulated response vector can be incorporated into a vector of floating-point values.
+
+## The parametric bootstrap
+
+[Bootstrapping](https://en.wikipedia.org/wiki/Bootstrapping_(statistics)) is a family of procedures
+for generating sample values of a statistic, allowing for visualization of the distribution of the
+statistic or for inference from this sample of values.
+
+A _parametric bootstrap_ is used with a parametric model, `m`, that has been fitted to data.
+The procedure is to simulate `n` response vectors from `m` using the estimated parameter values
+and refit `m` to these responses in turn, accumulating the statistics of interest at each iteration.
+
+The parameters of a linear mixed-effects model as fit by the `lmm` function are the fixed-effects
+parameters, `β`, the standard deviation, `σ`, of the per-observation noise, and the covariance
+parameter, `θ`, that defines the variance-covariance matrices of the random effects.
+
+For example, a simple linear mixed-effects model for the `Dyestuff` data in the [`lme4`](http://github.com/lme4/lme4)
+package for [`R`](https://www.r-project.org) is fit by
+```{julia;term=true}
+using DataFrames, MixedModels, RData, Gadfly
+```
+```{julia;echo=false;results="hidden"}
+const dat = Dict(Symbol(k)=>v for (k,v) in 
+    load(joinpath(dirname(pathof(MixedModels)), "..", "test", "dat.rda")));
+```
+```{julia;term=true}
+ds = names!(dat[:Dyestuff], [:Batch, :Yield])
+m1 = fit(LinearMixedModel, @formula(Yield ~ 1 + (1 | Batch)), ds)
+```
+
+Now bootstrap the model parameters
+```{julia;term=true;}
+results = bootstrap(100_000, m1);
+show(names(results))
+```
+The results for each bootstrap replication are stored in the columns of the matrix passed in as the first
+argument.  A density plot of the bootstrapped values of `σ` is created as
+```{julia;eval=false;term=true}
+plot(results, x = :σ, Geom.density, Guide.xlabel("Parametric bootstrap estimates of σ"))
+```
+```{julia;echo=false;fig_cap="Density of parametric bootstrap estimates of σ from model m1"; fig_width=8;}
+plot(results, x = :σ, Geom.density, Guide.xlabel("Parametric bootstrap estimates of σ"))
+```
+```{julia;echo=false;fig_cap="Density of parametric bootstrap estimates of σ₁ from model m1"; fig_width=8;}
+plot(results, x = :σ₁, Geom.density, Guide.xlabel("Parametric bootstrap estimates of σ₁"))
+```
+```{julia;echo=false;fig_cap="Histogram of parametric bootstrap estimates of σ₁ from model m1"; fig_width=8;}
+plot(results, x = :σ₁, Geom.histogram, Guide.xlabel("Parametric bootstrap estimates of σ₁"))
+```
+
+The distribution of the bootstrap samples of `σ` is a bit skewed but not terribly so.  However, the
+distribution of the bootstrap samples of the estimate of `σ₁` is highly skewed and has a spike at
+zero.
