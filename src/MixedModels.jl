@@ -2,7 +2,7 @@ module MixedModels
 
 using BlockArrays, CategoricalArrays, Tables, Distributions, GLM, 
     LinearAlgebra, NLopt, Random, ProgressMeter, Showoff, SparseArrays, StaticArrays,
-    Statistics, StatsBase, StatsModels
+    Statistics, StatsBase, StatsModels, TypedTables
 
 using LinearAlgebra: BlasFloat, BlasReal, HermOrSym, PosDefException, copytri!
 #using NamedArrays: NamedArray, setnames!
@@ -15,8 +15,6 @@ import NLopt: Opt
 
 export
        @formula,
-       AbstractFactorReTerm,
-       AbstractReTerm,
        Bernoulli,
        Binomial,
        Block,
@@ -97,6 +95,5 @@ include("linalg/rankUpdate.jl")
 include("linalg/logdet.jl")
 include("linalg.jl")
 include("simulate.jl")
-include("onecompartment.jl")
 
 end # module

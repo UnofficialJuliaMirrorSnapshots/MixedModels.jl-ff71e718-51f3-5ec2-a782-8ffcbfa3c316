@@ -7,11 +7,12 @@ makedocs(
              "optimization.md",
              "GaussHermite.md",
              "bootstrap.md",
-             "SimpleLMM.md",
-             "MultipleTerms.md",
-             "SingularCovariance.md",
-             "SubjectItem.md",
-             "benchmarks.md"]
+#             "SimpleLMM.md",
+#             "MultipleTerms.md",
+#             "SingularCovariance.md",
+#             "SubjectItem.md",
+#             "benchmarks.md"
+    ]
 )
 
 deploydocs(
