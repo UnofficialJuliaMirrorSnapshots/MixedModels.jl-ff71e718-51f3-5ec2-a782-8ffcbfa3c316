@@ -1,10 +1,27 @@
 struct RandomEffectsTerm <: AbstractTerm
     lhs::StatsModels.TermOrTerms
     rhs::StatsModels.TermOrTerms
+    function RandomEffectsTerm(lhs,rhs)
+        if isempty(intersect(StatsModels.termvars(lhs), StatsModels.termvars(rhs)))
+            # when the minimum Julia version is increased to 1.2, we can change
+            # this to the more generic !hasproperty(rhs,:contrasts)
+            # which actually tests the property we care about
+            if !isa(rhs, CategoricalTerm)
+                throw(ArgumentError("blocking variables (those behind |) must be Categorical ($(rhs) is not)"))
+            end
+            new(lhs, rhs)
+        else
+            throw(ArgumentError("Same variable appears on both sides of |"))
+        end
+    end
 end
 
 Base.show(io::IO, t::RandomEffectsTerm) = print(io, "($(t.lhs) | $(t.rhs))")
 StatsModels.is_matrix_term(::Type{RandomEffectsTerm}) = false
+
+function StatsModels.termvars(t::RandomEffectsTerm)
+    vcat(StatsModels.termvars(t.lhs), StatsModels.termvars(t.rhs))
+end
 
 function StatsModels.apply_schema(t::FunctionTerm{typeof(|)}, schema::StatsModels.FullRank,
         Mod::Type{<:MixedModel})

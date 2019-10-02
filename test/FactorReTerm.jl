@@ -79,6 +79,40 @@ const LMM = LinearMixedModel
     end
 end
 
+@testset "RandomEffectsTerm" begin
+    slp = dat[:sleepstudy]
+    contrasts =  Dict{Symbol,Any}()
+
+    @testset "Detect same variable as blocking and experimental" begin
+        f = @formula(Y ~ 1 + (1 + G|G))
+        @test_throws ArgumentError apply_schema(f, schema(f, slp, contrasts), LinearMixedModel)
+    end
+
+    @testset "Detect both blocking and experimental variables" begin
+        # note that U is not in the fixed effects because we want to make square
+        # that we're detecting all the variables in the random effects
+        f = @formula(Y ~ 1 + (1 + U|G))
+        form = apply_schema(f, schema(f, slp, contrasts), LinearMixedModel)
+        @test StatsModels.termvars(form.rhs) == [:U, :G]
+    end
+end
+
+@testset "Categorical Blocking Variable" begin
+    # deepcopy because we're going to modify it
+    slp = deepcopy(dat[:sleepstudy])
+    contrasts =  Dict{Symbol,Any}()
+    f = @formula(Y ~ 1 + (1|G))
+
+    # String blocking-variables work fine because StatsModels is smart enough to
+    # treat strings to treat strings as Categorical. Note however that this is a
+    # far less efficient to store the original dataframe, although it doesn't
+    # matter for the contrast matrix
+    slp[!,:G] = convert.(String, slp[!, :G])
+    # @test_throws ArgumentError LinearMixedModel(f, slp)
+    slp[!,:G] = parse.(Int, slp[!, :G])
+    @test_throws ArgumentError LinearMixedModel(f, slp)
+end
+
 #=
 @testset "vectorRe" begin
     slp = dat[:sleepstudy]
