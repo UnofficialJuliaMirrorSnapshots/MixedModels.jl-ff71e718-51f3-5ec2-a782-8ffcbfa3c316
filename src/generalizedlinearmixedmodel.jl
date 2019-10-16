@@ -105,6 +105,11 @@ function deviance!(m::GeneralizedLinearMixedModel, nAGQ=1)
     deviance(m, nAGQ)
 end
 
+GLM.dispersion(m::GeneralizedLinearMixedModel, sqr::Bool=false) =
+    dispersion(m.resp, dof_residual(m), sqr)
+
+GLM.dispersion_parameter(m::GeneralizedLinearMixedModel) = dispersion_parameter(m.resp.d)
+
 function StatsBase.dof(m::GeneralizedLinearMixedModel)
     length(m.β) + length(m.θ) + GLM.dispersion_parameter(m.resp.d)
 end
@@ -277,7 +282,7 @@ function Base.getproperty(m::GeneralizedLinearMixedModel, s::Symbol)
         m.β
     elseif s ∈ (:σ, :sigma)
         sdest(m)
-    elseif s ∈ (:A, :L, :λ, :lowerbd, :optsum, :X, :reterms, :feterms, :formula)
+    elseif s ∈ (:A, :L, :λ, :lowerbd, :optsum, :X, :reterms, :feterms, :formula, :σs, :σρs)
         getproperty(m.LMM, s)
     elseif s == :y
         m.resp.y
@@ -306,7 +311,8 @@ StatsBase.nobs(m::GeneralizedLinearMixedModel) = length(m.η)
 StatsBase.predict(m::GeneralizedLinearMixedModel) = fitted(m)
 
 Base.propertynames(m::GeneralizedLinearMixedModel, private=false) =
-(:A, :L, :theta, :beta, :coef, :λ, :lambda, :σ, :sigma, :X, :y, :lowerbd, fieldnames(typeof(m))...)
+    (:A, :L, :theta, :beta, :coef, :λ, :lambda, :σ, :sigma, :X, :y, :lowerbd, :σρs, :σs,
+    fieldnames(typeof(m))...)
 
 """
     pirls!(m::GeneralizedLinearMixedModel)
@@ -452,6 +458,8 @@ for f in (
     :lowerbd,
     :(StatsModels.modelmatrix),
     :(StatsBase.vcov),
+    :σs,
+    :σρs,
     )
     @eval begin
         $f(m::GeneralizedLinearMixedModel) = $f(m.LMM)

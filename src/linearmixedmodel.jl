@@ -65,6 +65,20 @@ function LinearMixedModel(f::FormulaTerm, tbl::Tables.ColumnTable;
         end
     end
     push!(feterms, FeMat(y, [""]))
+
+    # detect and combine RE terms with the same grouping var
+    grps = Set([fname(rt) for rt in reterms])
+    if length(grps) != length(reterms)
+        # this reduction step could be expensive for large models
+        reterms_simplified = ReMat{T}[]
+        for gg in grps
+            combined = amalgamate([ret for ret in reterms if fname(ret) == gg])
+            push!(reterms_simplified, combined)
+        end
+        reterms = reterms_simplified
+    end
+
+
     sort!(reterms, by=nranef, rev=true)
 
     # create A and L
@@ -116,6 +130,13 @@ fit(::Type{LinearMixedModel},
 
 StatsBase.coef(m::MixedModel) = fixef(m, false)
 
+function βs(m::LinearMixedModel)
+    fetrm = first(m.feterms)
+    (; (k => v for (k,v) in zip(Symbol.(fetrm.cnames), fixef(m)))...)
+end
+
+StatsBase.coefnames(m::LinearMixedModel) = first(m.feterms).cnames
+
 function StatsBase.coeftable(m::MixedModel)
     co = coef(m)
     se = stderror(m)
@@ -162,8 +183,6 @@ function condVar(m::LinearMixedModel{T}) where {T}
     Array{T, 3}[reshape(abs2.(ll ./ Ld) .* varest(m), (1, 1, length(Ld)))]
 end
 
-Statistics.cor(m::LinearMixedModel{T}) where {T} = Matrix{T}[stddevcor(t)[2] for t in m.reterms]
-
 """
     describeblocks(io::IO, m::MixedModel)
     describeblocks(m::MixedModel)
@@ -182,9 +201,13 @@ describeblocks(m::MixedModel) = describeblocks(stdout, m)
 
 StatsBase.deviance(m::MixedModel) = objective(m)
 
+GLM.dispersion(m::LinearMixedModel, sqr::Bool=false) = sqr ? varest(m) : sdest(m)
+
+GLM.dispersion_parameter(m::LinearMixedModel) = true
+
 StatsBase.dof(m::LinearMixedModel) = size(m)[2] + sum(nθ, m.reterms) + 1
 
-function StatsBase.dof_residual(m::LinearMixedModel)
+function StatsBase.dof_residual(m::LinearMixedModel)::Int
     (n, p, q, k) = size(m)
     n - m.optsum.REML * p
 end
@@ -293,7 +316,7 @@ end
 
 Return the names of the grouping factors for the random-effects terms.
 """
-fnames(m::MixedModel) = map(x -> x.trm.sym, m.reterms)
+fnames(m::MixedModel) = ((Symbol(tr.trm.sym) for tr in m.reterms)...,)
 
 """
     getθ(m::LinearMixedModel)
@@ -302,15 +325,31 @@ Return the current covariance parameter vector.
 """
 getθ(m::LinearMixedModel{T}) where {T} = foldl(vcat, getθ.(m.reterms))
 
+function getθ!(v::AbstractVector{T}, m::LinearMixedModel{T}) where {T}
+    k = 0
+    for t in m.reterms
+        nt = nθ(t)
+        getθ!(view(v, (k+1):(k+nt)), t)
+        k += nt
+    end
+    v
+end
+
 function Base.getproperty(m::LinearMixedModel, s::Symbol)
     if s == :θ || s == :theta
         getθ(m)
     elseif s == :β || s == :beta
         coef(m)
+    elseif s == :βs || s == :betas
+        βs(m)
     elseif s == :λ || s == :lambda
         getproperty.(m.reterms, :λ)
     elseif s == :σ || s == :sigma
         sdest(m)
+    elseif s == :σs || s == :sigmas
+        σs(m)
+    elseif s == :σρs || s == :sigmarhos
+        σρs(m)
     elseif s == :b
         ranef(m)
     elseif s == :objective
@@ -371,6 +410,8 @@ function StatsBase.modelmatrix(m::LinearMixedModel)
     end
 end
 
+nθ(m::LinearMixedModel) = sum(nθ, m.reterms)
+
 StatsBase.nobs(m::LinearMixedModel) = first(size(m))
 
 """
@@ -387,7 +428,8 @@ StatsBase.predict(m::LinearMixedModel) = fitted(m)
 
 Base.propertynames(m::LinearMixedModel, private=false) =
     (:formula, :sqrtwts, :A, :L, :optsum, :θ, :theta, :β, :beta, :λ, :lambda, :stderror,
-     :σ, :sigma, :b, :u, :lowerbd, :X, :y, :rePCA, :reterms, :feterms, :objective, :pvalues)
+     :σ, :sigma, :σs, :sigmas, :b, :u, :lowerbd, :X, :y, :rePCA, :reterms, :feterms,
+     :objective, :pvalues)
 
 """
     pwrss(m::LinearMixedModel)
@@ -561,6 +603,16 @@ function Base.show(io::IO, m::LinearMixedModel)
     show(io,coeftable(m))
 end
 
+function σs(m::LinearMixedModel)
+    σ = sdest(m)
+    NamedTuple{fnames(m)}(((σs(t, σ) for t in m.reterms)...,))
+end
+
+function σρs(m::LinearMixedModel)
+    σ = sdest(m)
+    NamedTuple{fnames(m)}(((σρs(t, σ) for t in m.reterms)...,))
+end
+
 function Base.size(m::LinearMixedModel)
     n, p = size(first(m.feterms))
     n, p, sum(size.(m.reterms, 2)), length(m.reterms)
@@ -684,7 +736,7 @@ The default for `trmnms` is all the names of random-effects terms.
 A random effects term is in the zero correlation parameter configuration when the off-diagonal elements of
 λ are all zero - hence there are no correlation parameters in that term being estimated.
 """
-function zerocorr!(m::LinearMixedModel{T}, trmns::Vector{Symbol}) where {T}
+function zerocorr!(m::LinearMixedModel{T}, trmns) where {T}
     reterms = m.reterms
     for trm in reterms
         if fname(trm) in trmns

@@ -5,13 +5,15 @@ cpad(s::String, n::Integer) = rpad(lpad(s, (n + textwidth(s)) >> 1), n)
 """
 densify(S::SparseMatrix, threshold=0.25)
 
-Convert sparse `S` to `Diagonal` if `S` is diagonal or to `full(S)` if
+Convert sparse `S` to `Diagonal` if `S` is diagonal or to `Array(S)` if
 the proportion of nonzeros exceeds `threshold`.
 """
 function densify(A::SparseMatrixCSC, threshold::Real = 0.25)
     m, n = size(A)
     if m == n && isdiag(A)  # convert diagonal sparse to Diagonal
-        Diagonal(diag(A))
+        # the diagonal is always dense (otherwise rank deficit)
+        # so make sure it's stored as such
+        Diagonal(Vector(diag(A)))
     elseif nnz(A)/(m * n) ≤ threshold
         A
     else
@@ -19,6 +21,9 @@ function densify(A::SparseMatrixCSC, threshold::Real = 0.25)
     end
 end
 densify(A::AbstractMatrix, threshold::Real = 0.3) = A
+
+densify(A::SparseVector, threshold::Real = 0.3)  = Vector(A)
+densify(A::Diagonal{T, SparseVector}, threshold::Real = 0.3) where T = Diagonal(Vector(A.diag))
 
 """
     RaggedArray{T,I}
@@ -52,39 +57,32 @@ function normalized_variance_cumsum(A::AbstractMatrix)
     vars ./ last(vars)
 end
 
+const strictlowertrid = Dict(
+    1 => (),
+    2 => ((2,1),),
+    3 => ((2,1), (3,1), (3,2)),
+    4 => ((2,1), (3,1), (4,1), (3,2), (4,2), (4,3)))
 
-function stddevcor!(σ::Vector{T}, ρ::Matrix{T}, scr::Matrix{T}, L::Cholesky{T}) where {T}
-    length(σ) == (k = size(L, 2)) && size(ρ) == (k, k) && size(scr) == (k, k) || 
-        throw(DimensionMismatch(""))
-    if L.uplo == 'L'
-        copyto!(scr, L.factors)
-        for i in 1 : k
-            σ[i] = σi = norm(view(scr, i, 1:i))
-            for j in 1:i
-                scr[i, j] /= σi
-            end
+function lowertriinds(k)
+    indpairs = NTuple{2,Int}[]
+    for j in 1:(k-1)
+        for i in (j+1):k
+            push!(indpairs, (i,j))
         end
-        mul!(ρ, LowerTriangular(scr), adjoint(LowerTriangular(scr)))
-    elseif L.uplo == 'U'
-        copyto!(scr, L.factors)
-        for j in 1 : k
-            σ[j] = σj = norm(view(scr, 1:j, j))
-            for i in 1 : j
-                scr[i, j] /= σj
-            end
-        end
-        mul!(ρ, UpperTriangular(scr)', UpperTriangular(scr))
-    else
-        throw(ArgumentError("L.uplo should be 'L' or 'U'"))
     end
-    σ, ρ
+    (indpairs...,)
 end
 
-function stddevcor(L::Cholesky{T}) where {T}
-    k = size(L, 1)
-    stddevcor!(Vector{T}(undef, k), Matrix{T}(undef, k, k), Matrix{T}(undef, k, k), L)
-end
-#=
+"""
+    indpairs(k)
+
+Return a tuple of (row,column) tuples in the strict lower triangle of a `k` by `k` matrix.
+
+The results are memoized in the `strictlowertrid` `Dict` and created by `lowertriinds(k)`
+when needed.
+"""
+indpairs(k) = get!(strictlowertrid, k, lowertriinds(k))
+
 """
     subscriptednames(nm, len)
 
@@ -96,7 +94,7 @@ function subscriptednames(nm, len)
         [string(nm, '₀' + j) for j in 1:len] :
         [string(nm, lpad(string(j), nd, '0')) for j in 1:len]
 end
-
+#=
 updatedevresid!(r::GLM.GlmResp, η::AbstractVector) = updateμ!(r, η)
 
 fastlogitdevres(η, y) = 2log1p(exp(iszero(y) ? η : -η))
