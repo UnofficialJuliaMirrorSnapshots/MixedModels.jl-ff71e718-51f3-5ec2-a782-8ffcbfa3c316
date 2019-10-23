@@ -1,4 +1,4 @@
-using DataFrames, LinearAlgebra, MixedModels, NamedArrays
+using BlockArrays, DataFrames, LinearAlgebra, MixedModels, NamedArrays
 using Random, RData, SparseArrays, Statistics, Tables, Test
 
 if !@isdefined(dat) || !isa(dat, Dict{Symbol, DataFrame})
@@ -11,9 +11,9 @@ const LMM = LinearMixedModel
 @testset "Dyestuff" begin
     fm1 = LMM(@formula(Y ~ 1 + (1|G)), dat[:Dyestuff])
 
-    @test nblocks(fm1.A) == (3, 3)
+    @test BlockArrays.nblocks(fm1.A) == (3, 3)
     @test size(fm1.reterms) == (1, )
-    @test nblocks(fm1.L) == (3, 3)
+    @test BlockArrays.nblocks(fm1.L) == (3, 3)
     @test lowerbd(fm1) == zeros(1)
     @test fm1.lowerbd == zeros(1)
     @test fm1.θ == ones(1)
@@ -234,6 +234,29 @@ end
     @test first(std(fmnc)) ≈ [24.171449463289047, 5.799379721123582]
     @test last(std(fmnc)) ≈ [25.556130034081047]
     @test logdet(fmnc) ≈ 74.46952585564611 atol=0.001
+    ρ = first(fmnc.σρs.G.ρ)
+    @test ρ === -0.0   # test that systematic zero correlations are returned as -0.0
+
+    fmnc2 = LinearMixedModel(@formula(Y ~ 1 + U + zerocorr(1+U|G)),
+                             dat[:sleepstudy])
+    @test size(fmnc2) == (180,2,36,1)
+    @test fmnc2.θ == ones(2)
+    @test lowerbd(fmnc2) == zeros(2)
+
+    fit!(fmnc2)
+
+    @test deviance(fmnc2) ≈ 1752.0032551398835 atol=0.001
+    @test objective(fmnc2) ≈ 1752.0032551398835 atol=0.001
+    @test coef(fmnc2) ≈ [251.40510484848585, 10.467285959595715]
+    @test fixef(fmnc2) ≈ [251.40510484848477, 10.467285959595715]
+    @test stderror(fmnc2) ≈ [6.707710260366577, 1.5193083237479683] atol=0.001
+    @test fmnc2.θ ≈ [0.9458106880922268, 0.22692826607677266] atol=0.0001
+    @test first(std(fmnc2)) ≈ [24.171449463289047, 5.799379721123582]
+    @test last(std(fmnc2)) ≈ [25.556130034081047]
+    @test logdet(fmnc2) ≈ 74.46952585564611 atol=0.001
+    
+
+#    MixedModels.lrt(fm, fmnc)
 
     MixedModels.likelihoodratiotest(fm, fmnc)
 
